@@ -1025,6 +1025,15 @@ struct common_init_result common_init_from_params(common_params & params) {
 
     iparams.model.reset(model);
     iparams.context.reset(lctx);
+ 
+    if (llama_model_supports_vcc(model)){
+        LOG_INF("%s: setting vcc_layers = %d\n", __func__, params.vcc_layer);
+    }
+    else {
+        LOG_ERR("%s: model does not support VCC (vertical context cutoff)\n", __func__);
+        llama_free(lctx);
+        llama_model_free(model);
+    }
 
     return iparams;
 }
@@ -1068,6 +1077,7 @@ struct llama_model_params common_model_params_to_llama(common_params & params) {
     mparams.use_mmap        = params.use_mmap;
     mparams.use_mlock       = params.use_mlock;
     mparams.check_tensors   = params.check_tensors;
+    mparams.vcc_layer       = params.vcc_layer;
 
     if (params.kv_overrides.empty()) {
         mparams.kv_overrides = NULL;

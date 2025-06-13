@@ -6828,23 +6828,33 @@ struct llm_build_qwen3 : public llm_graph_context {
         GGML_ASSERT(n_embd_head == hparams.n_rot);
 
         ggml_tensor * cur;
+        ggml_tensor * mem;
         ggml_tensor * inpL;
 
         inpL = build_inp_embd(model.tok_embd);
+        ggml_tensor * memL = inpL;
 
         // inp_pos - contains the positions
         ggml_tensor * inp_pos = build_inp_pos();
 
         auto * inp_attn = build_attn_inp_kv_unified();
 
+        auto vcc_layer = model.params.vcc_layer;
+
         for (int il = 0; il < n_layer; ++il) {
             ggml_tensor * inpSA = inpL;
 
-            // norm
+            // norm input
             cur = build_norm(inpL,
                     model.layers[il].attn_norm, NULL,
                     LLM_NORM_RMS, il);
             cb(cur, "attn_norm", il);
+
+            // norm memory
+            mem = build_norm(memL,
+                    model.layers[il].attn_norm, NULL,
+                    LLM_NORM_RMS, il);
+            cb(mem, "attn_mem_norm", il);
 
             // self-attention
             {
@@ -6852,10 +6862,10 @@ struct llm_build_qwen3 : public llm_graph_context {
                 ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur);
                 cb(Qcur, "Qcur", il);
 
-                ggml_tensor * Kcur = build_lora_mm(model.layers[il].wk, cur);
+                ggml_tensor * Kcur = build_lora_mm(model.layers[il].wk, mem);
                 cb(Kcur, "Kcur", il);
 
-                ggml_tensor * Vcur = build_lora_mm(model.layers[il].wv, cur);
+                ggml_tensor * Vcur = build_lora_mm(model.layers[il].wv, mem);
                 cb(Vcur, "Vcur", il);
 
                 Qcur = ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head,    n_tokens);
@@ -6896,6 +6906,11 @@ struct llm_build_qwen3 : public llm_graph_context {
                 inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
             }
 
+            /* 
+            TODO: we could skip at least the ff computation for unused tokens after the cutoff layer
+                  skipping self-attention is more difficult, because we need to set the causal mask properly
+             */
+
             ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
             cb(ffn_inp, "ffn_inp", il);
 
@@ -6920,6 +6935,12 @@ struct llm_build_qwen3 : public llm_graph_context {
 
             // input for next layer
             inpL = cur;
+
+            if (vcc_layer > 0 && il < vcc_layer)
+            {
+                // memory for next layer
+                memL = cur; 
+            }
         }
 
         cur = inpL;
@@ -6949,23 +6970,33 @@ struct llm_build_qwen3moe : public llm_graph_context {
         GGML_ASSERT(n_embd_head == hparams.n_rot);
 
         ggml_tensor * cur;
+        ggml_tensor * mem;
         ggml_tensor * inpL;
 
         inpL = build_inp_embd(model.tok_embd);
+        ggml_tensor * memL = inpL;
 
         // inp_pos - contains the positions
         ggml_tensor * inp_pos = build_inp_pos();
 
         auto * inp_attn = build_attn_inp_kv_unified();
 
+        auto vcc_layer = model.params.vcc_layer;
+
         for (int il = 0; il < n_layer; ++il) {
             ggml_tensor * inpSA = inpL;
 
-            // norm
+            // norm input
             cur = build_norm(inpL,
                     model.layers[il].attn_norm, NULL,
                     LLM_NORM_RMS, il);
             cb(cur, "attn_norm", il);
+
+            // norm memory
+            mem = build_norm(memL,
+                    model.layers[il].attn_norm, NULL,
+                    LLM_NORM_RMS, il);
+            cb(mem, "attn_mem_norm", il);
 
             // self_attention
             {
@@ -6973,10 +7004,10 @@ struct llm_build_qwen3moe : public llm_graph_context {
                 ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur);
                 cb(Qcur, "Qcur", il);
 
-                ggml_tensor * Kcur = build_lora_mm(model.layers[il].wk, cur);
+                ggml_tensor * Kcur = build_lora_mm(model.layers[il].wk, mem);
                 cb(Kcur, "Kcur", il);
 
-                ggml_tensor * Vcur = build_lora_mm(model.layers[il].wv, cur);
+                ggml_tensor * Vcur = build_lora_mm(model.layers[il].wv, mem);
                 cb(Vcur, "Vcur", il);
 
                 Qcur = ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head,    n_tokens);
@@ -7016,6 +7047,11 @@ struct llm_build_qwen3moe : public llm_graph_context {
                 cur   = ggml_get_rows(ctx0,   cur, inp_out_ids);
                 inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
             }
+
+            /* 
+            TODO: we could skip at least the ff computation for unused tokens after the cutoff layer
+                  skipping self-attention is more difficult, because we need to set the causal mask properly
+             */
 
             ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
             cb(ffn_inp, "ffn_inp", il);
@@ -7048,6 +7084,12 @@ struct llm_build_qwen3moe : public llm_graph_context {
 
             // input for next layer
             inpL = cur;
+
+            if (vcc_layer > 0 && il < vcc_layer)
+            {
+                // memory for next layer
+                memL = cur; 
+            }
         }
 
         cur = inpL;
@@ -13171,6 +13213,7 @@ llama_model_params llama_model_default_params() {
         /*.use_mmap                    =*/ true,
         /*.use_mlock                   =*/ false,
         /*.check_tensors               =*/ false,
+        /*.vcc_layers                  =*/ -1,
     };
 
 #ifdef GGML_USE_METAL
@@ -13399,6 +13442,14 @@ bool llama_model_has_decoder(const llama_model * model) {
     switch (model->arch) {
         case LLM_ARCH_T5ENCODER: return false;
         default:                 return true;
+    }
+}
+
+bool llama_model_supports_vcc(const llama_model * model) {
+    switch (model->arch) {
+        case LLM_ARCH_QWEN3: return true;
+        case LLM_ARCH_QWEN3MOE: return true;
+        default:             return false;
     }
 }
 
