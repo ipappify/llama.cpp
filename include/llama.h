@@ -324,6 +324,8 @@ extern "C" {
         bool use_mmap;      // use mmap if possible
         bool use_mlock;     // force system to keep model in RAM
         bool check_tensors; // validate model tensor data
+
+        int32_t vcc_layer;
     };
 
     // NOTE: changing the default values of parameters marked as [EXPERIMENTAL] may cause crashes or incorrect results in certain configurations
@@ -561,6 +563,9 @@ extern "C" {
 
     // Returns true if the model contains a decoder that requires llama_decode() call
     LLAMA_API bool llama_model_has_decoder(const struct llama_model * model);
+
+    // Returns true if the model supports the VCC (Vertical Context Cutoff) feature
+    LLAMA_API bool llama_model_supports_vcc(const struct llama_model * model);
 
     // For encoder-decoder models, this function returns id of the token that must be provided
     // to the decoder to start generating output sequence. For other models, it returns -1.

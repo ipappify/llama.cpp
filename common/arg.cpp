@@ -3376,5 +3376,13 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_examples({LLAMA_EXAMPLE_SERVER}));
 
+    add_opt(common_arg(
+        {"-vcc", "--vcc-layer", "--cutoff-layer" }, "N",
+        "layer from which on context is no longer updated (<= 0 to disable vertical context cutoff)\n",
+        [](common_params & params, int value) {
+            params.vcc_layer = value;
+        }
+    ).set_env("LLAMA_ARG_VCC_LAYER"));
+
     return ctx_arg;
 }
